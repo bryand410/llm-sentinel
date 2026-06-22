@@ -1,63 +1,78 @@
-from fastapi import FastAPI, HTTPException
+import os
+from fastapi import FastAPI
 from pydantic import BaseModel
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from transformers import BertTokenizer, BertForSequenceClassification
 import torch
+import torch.nn.functional as F
 
-# 1. Initialisation de l'API
 app = FastAPI(
     title="LLM Sentinel API",
-    description="API de sécurité pour bloquer les Prompt Injections",
+    description="API de sécurité et d'analyse avec BERT",
     version="1.0.0"
 )
 
-# 2. Définition du format de la requête (Ce que l'utilisateur envoie)
-class PromptRequest(BaseModel):
+# ==========================================
+# Détection du modèle (Local vs Cloud)
+# ==========================================
+LOCAL_MODEL_DIR = "./models"
+
+if os.path.exists(os.path.join(LOCAL_MODEL_DIR, "config.json")):
+    MODEL_PATH = LOCAL_MODEL_DIR
+    print(f"📁 Modèle local trouvé : {MODEL_PATH}")
+else:
+    MODEL_PATH = "prajjwal1/bert-tiny"
+    print("🌐 Fallback HuggingFace")
+# ==========================================
+# Chargement du modèle
+# ==========================================
+print("⏳ Chargement du modèle BERT...")
+tokenizer = BertTokenizer.from_pretrained(MODEL_PATH)
+model = BertForSequenceClassification.from_pretrained(MODEL_PATH)
+model.eval()
+print("✅ Modèle prêt !")
+
+# ==========================================
+# Schémas
+# ==========================================
+class AnalyzeRequest(BaseModel):
     text: str
 
-# Variables globales pour stocker notre IA
-model = None
-tokenizer = None
+# ==========================================
+# Routes
+# ==========================================
+@app.get("/")
+def read_root():
+    return {"status": "success", "message": "Le Sentinel est opérationnel."}
 
-# 3. Chargement de l'IA au démarrage du serveur
-@app.on_event("startup")
-def load_ai():
-    global model, tokenizer
-    print("⏳ Chargement du modèle IA Sentinel...")
-    # On charge le modèle SAUVEGARDÉ sur le disque
-    try:
-        model_path = "./models/llm-sentinel-tiny_final"
-        model = AutoModelForSequenceClassification.from_pretrained(model_path)
-        tokenizer = AutoTokenizer.from_pretrained(model_path)
-        print("✅ Modèle chargé et prêt à scanner !")
-    except Exception as e:
-        print(f"❌ Erreur de chargement: {e}")
+@app.post("/analyze")
+def analyze_text(request: AnalyzeRequest):
+    inputs = tokenizer(
+        request.text,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=512
+    )
 
-# 4. La route principale : Le Scanner
-@app.post("/scan")
-async def scan_prompt(request: PromptRequest):
-    if not request.text:
-        raise HTTPException(status_code=400, detail="Le texte est vide.")
-
-    # A. L'IA traduit le texte en maths
-    inputs = tokenizer(request.text, return_tensors="pt", padding=True, truncation=True)
-    
-    # B. L'IA fait sa prédiction (sans s'entraîner)
     with torch.no_grad():
         outputs = model(**inputs)
-        
-    # C. Calcul des probabilités mathématiques (Softmax)
-    logits = outputs.logits
-    probabilities = torch.nn.functional.softmax(logits, dim=-1)
-    
-    # D. Récupérer le score de l'attaque (Label 1)
-    attack_score = probabilities[0][1].item()
-    
-    # E. Décision (Si le score est > 50%, c'est une attaque)
-    is_attack = attack_score > 0.5
+        logits = outputs.logits
+
+        # Softmax → probabilités par classe
+        probs = F.softmax(logits, dim=1).squeeze().tolist()
+
+        predicted_class = torch.argmax(logits, dim=1).item()
+
+        # Si ton modèle a 2 classes : 0 = sûr, 1 = injection
+        confidence = probs[predicted_class] if isinstance(probs, list) else probs
 
     return {
-        "text_scanned": request.text,
-        "is_attack": is_attack,
-        "threat_score": round(attack_score * 100, 2), # Score en pourcentage
-        "status": "🚨 BLOCKED" if is_attack else "✅ SAFE"
+        "input_text":      request.text,
+        "predicted_class": predicted_class,
+        "label":           "injection" if predicted_class == 1 else "safe",
+        "confidence":      round(confidence, 4),
+        "probabilities":   {
+            "safe":      round(probs[0], 4) if isinstance(probs, list) else None,
+            "injection": round(probs[1], 4) if isinstance(probs, list) and len(probs) > 1 else None,
+        }
     }

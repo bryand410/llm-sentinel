@@ -216,3 +216,20 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ==========================================
+# LLM Sentinel — Fichiers lourds a exclure
+# ==========================================
+# Poids du modele (trop lourd pour Git)
+models/*.safetensors
+models/*.pt
+models/*.pth
+models/*.bin
+
+# Checkpoints d'entrainement
+results/
+results_v2/
+logs/
+
+# Anciens modeles
+old_models/
