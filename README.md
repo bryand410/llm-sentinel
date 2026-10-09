@@ -61,9 +61,16 @@ uvicorn api.main:app --reload
 
 Then open the dashboard at <http://localhost:8000/dashboard>.
 
-> On a fresh clone there are no fine-tuned weights (they are excluded from Git),
-> so the API falls back to the base model and still boots. Train it — or drop
-> your own weights into `models/` — to get real detection.
+> On a fresh clone there are no fine-tuned weights — they are excluded from Git.
+> The API then downloads a base `distilbert-base-uncased` (~250 MB) whose
+> classification head is randomly initialised. It boots, but its verdicts mean
+> nothing: the health check reports `"fine_tuned": false` so the degraded state is
+> visible instead of silent. Run `python train_v2.py`, or point
+> `SENTINEL_MODEL_DIR` at trained weights, to get real detection.
+>
+> This is why `prajjwal1/bert-tiny` is no longer the fallback: that Hub repo
+> declares no `model_type` and ships no `tokenizer.json`, so transformers 5
+> refuses to load it at all — a fresh clone simply did not start.
 
 ## Using the API
 
@@ -133,12 +140,14 @@ pip install -r requirements-dev.txt
 pytest -v
 ```
 
-- `tests/test_api.py` — API contract. Runs with no fine-tuned weights, so it
-  works on a fresh clone and in CI.
+- `tests/test_api.py` — API contract. `conftest.py` builds a tiny deterministic
+  classifier and points the app at it, so these tests need no fine-tuned weights
+  and no network access: they run on a fresh clone and in CI.
 - `tests/test_detection.py` — the accuracy bench: 35 cases across classic,
   subtle, obfuscated and indirect injections, plus benign prompts and traps
   (asking *about* prompt injection is not an injection). It fails below 85 %.
-  Skipped automatically when the weights are absent.
+  It deliberately ignores `SENTINEL_MODEL_DIR` and measures the shipped model in
+  `./models`, so it skips automatically when the weights are absent.
 
 Cases the model gets wrong are marked `xfail(strict=True)` with the measured
 reason rather than deleted — the bench is meant to measure the model, not flatter
@@ -188,13 +197,17 @@ llm-sentinel/
 │   ├── train.py
 │   └── diagnostic.py
 ├── tests/                    # pytest suite
+├── conftest.py               # Builds the fake model used by the API tests
+├── modele_factice.py         # Tiny offline classifier, for tests and CI
 ├── train.py                  # Original training script
 ├── train_v2.py               # Released model
 ├── train_v3.py               # Multilingual upgrade (in progress)
 ├── test_exhaustif.py         # Standalone accuracy bench
 ├── models/                   # Fine-tuned model (weights excluded from Git)
+├── .github/workflows/ci.yml  # Lint, tests, Docker build
 ├── Dockerfile
 ├── docker-compose.yml
+├── pyproject.toml            # ruff and pytest configuration
 └── requirements.txt
 ```
 
@@ -203,7 +216,8 @@ llm-sentinel/
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SENTINEL_MODEL_DIR` | `./models` | Where to look for fine-tuned weights |
-| `SENTINEL_FALLBACK_MODEL` | `prajjwal1/bert-tiny` | Used when no local weights are found |
+| `SENTINEL_FALLBACK_MODEL` | `distilbert-base-uncased` | Base model used when no local weights are found |
+| `SENTINEL_BENCH_MODEL_DIR` | `./models` | Model the accuracy bench in `tests/test_detection.py` measures |
 
 ## Contributing
 
