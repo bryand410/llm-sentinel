@@ -40,6 +40,9 @@ jobs:
       - name: Installer les dependances
         run: pip install -r requirements.txt pytest httpx
 
+      # Aucun acces reseau : conftest.py monte un classifieur factice et pointe
+      # l'API dessus. Le banc de detection, lui, se saute tout seul faute de
+      # poids fine-tunes.
       - name: Lancer les tests
         run: pytest -v
 
@@ -52,13 +55,24 @@ jobs:
       - name: Construire l'image
         run: docker build -t llm-sentinel:ci .
 
+      # L'image ne contient pas les poids fine-tunes (exclus de Git). On fabrique
+      # un modele factice avec les outils deja presents dans l'image, puis on le
+      # monte : la CI ne depend ainsi d'aucun telechargement HuggingFace.
+      - name: Fabriquer un modele factice
+        run: |
+          docker run --rm \
+            -v "$PWD:/src:ro" \
+            -v sentinel-models:/modeles \
+            -w /src \
+            llm-sentinel:ci python modele_factice.py /modeles
+
       - name: Demarrer le conteneur
         run: |
-          docker run -d --name sentinel -p 8000:8000 llm-sentinel:ci
-          # Au premier demarrage, le conteneur n'a pas de poids locaux : il
-          # telecharge le modele de base depuis HuggingFace. On laisse donc
-          # jusqu'a 3 minutes avant de declarer l'echec.
-          for i in $(seq 1 90); do
+          docker run -d --name sentinel -p 8000:8000 \
+            -v sentinel-models:/modeles \
+            -e SENTINEL_MODEL_DIR=/modeles \
+            llm-sentinel:ci
+          for i in $(seq 1 45); do
             if curl -sf http://localhost:8000/ > /dev/null; then
               echo "API operationnelle apres ${i} tentatives"
               exit 0
@@ -71,3 +85,6 @@ jobs:
 
       - name: Verifier que le dashboard repond
         run: curl -sf http://localhost:8000/dashboard | grep -q "LLM Sentinel"
+
+      - name: Verifier que l'API annonce bien un modele entraine
+        run: curl -sf http://localhost:8000/ | grep -q '"fine_tuned":true'
