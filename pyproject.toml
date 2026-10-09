@@ -1,0 +1,19 @@
+# Configuration des outils. Aucune metadonnee de paquet ici : le projet n'est pas
+# distribue sur PyPI, il s'utilise tel quel.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = ["venv", "old_models", "results", "results_v2", "results_v3", "notebooks"]
+
+[tool.ruff.lint]
+# Regles volontairement limitees au socle : code mort, imports inutilises,
+# variables non definies. Le style est laisse libre pour ne pas noyer les
+# relectures sous le bruit.
+select = ["E4", "E7", "E9", "F", "W"]
+ignore = ["E501"]

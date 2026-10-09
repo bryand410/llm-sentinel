@@ -1,7 +1,9 @@
+import numpy as np
 import torch
-from transformers import BertTokenizer, BertForSequenceClassification, Trainer, TrainingArguments
 from datasets import Dataset
+from sklearn.metrics import accuracy_score, f1_score
 from sklearn.model_selection import train_test_split
+from transformers import BertForSequenceClassification, BertTokenizer, Trainer, TrainingArguments
 
 # ==========================================
 # 1. Dataset élargi (bilingue FR + EN)
@@ -107,9 +109,6 @@ val_tok   = val_dataset.map(tokenize,   batched=True)
 # ==========================================
 # 4. Métriques
 # ==========================================
-import numpy as np
-from sklearn.metrics import accuracy_score, f1_score
-
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
     preds = np.argmax(logits, axis=1)
