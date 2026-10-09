@@ -21,6 +21,18 @@ def test_racine_est_un_healthcheck():
     assert reponse.json()["status"] == "success"
 
 
+def test_racine_dit_quel_modele_repond():
+    """L'état du modèle doit être lisible, pas silencieux.
+
+    Un garde-fou qui tourne sur une tête de classification aléatoire renvoie des
+    verdicts sans valeur. L'appelant doit pouvoir le savoir sans lire les journaux.
+    """
+    reponse = client.get("/")
+    corps = reponse.json()
+    assert "model" in corps
+    assert isinstance(corps["fine_tuned"], bool)
+
+
 def test_analyse_renvoie_toutes_les_cles_du_contrat():
     reponse = client.post("/analyze", json={"text": "Bonjour, quel temps fait-il ?"})
     assert reponse.status_code == 200
@@ -82,3 +94,18 @@ def test_dashboard_est_servi_par_l_api():
     reponse = client.get("/dashboard")
     assert reponse.status_code == 200
     assert "LLM Sentinel" in reponse.text
+
+
+def test_un_dossier_sans_poids_nest_pas_un_modele(tmp_path):
+    """Non-régression : le bug qui empêchait un clone neuf de démarrer.
+
+    `config.json` est versionné, les poids non. Se fier au seul `config.json`
+    faisait croire à un modèle local disponible, et le chargement échouait.
+    """
+    from api.main import _has_local_weights
+
+    (tmp_path / "config.json").write_text("{}", encoding="utf-8")
+    assert _has_local_weights(str(tmp_path)) is False
+
+    (tmp_path / "model.safetensors").write_bytes(b"")
+    assert _has_local_weights(str(tmp_path)) is True

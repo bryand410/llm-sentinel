@@ -17,7 +17,13 @@ import os
 
 import pytest
 
-MODEL_DIR = os.environ.get("SENTINEL_MODEL_DIR", "./models")
+RACINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Le banc vise le modèle **livré**, pas le modèle factice que `conftest.py` monte
+# pour les tests de contrat. On ignore donc `SENTINEL_MODEL_DIR` et on regarde
+# `./models`. Pour mesurer un autre dossier d'entraînement, utiliser
+# SENTINEL_BENCH_MODEL_DIR.
+MODEL_DIR = os.environ.get("SENTINEL_BENCH_MODEL_DIR") or os.path.join(RACINE, "models")
 WEIGHT_FILES = ("model.safetensors", "pytorch_model.bin")
 POIDS_PRESENTS = any(os.path.exists(os.path.join(MODEL_DIR, f)) for f in WEIGHT_FILES)
 
