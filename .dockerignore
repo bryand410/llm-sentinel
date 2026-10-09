@@ -1,4 +1,30 @@
 venv/
 __pycache__/
+*.py[cod]
 .git/
+.github/
+.gitignore
 *.ipynb
+
+# Checkpoints et anciens modeles — jamais dans l'image
+old_models/
+results/
+results_v2/
+results_v3/
+logs/
+notebooks/
+
+# Code d'entrainement : l'image ne sert que l'API
+src/
+train.py
+train_v2.py
+train_v3.py
+test_exhaustif.py
+tests/
+download_model.py
+
+# Etat machine
+.freebuff/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
