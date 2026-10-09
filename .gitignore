@@ -233,3 +233,9 @@ logs/
 
 # Anciens modeles
 old_models/
+
+# Checkpoints du trainer v3
+results_v3/
+
+# Base locale de l'outil Freebuff (etat machine, jamais a publier)
+.freebuff/
