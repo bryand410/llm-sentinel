@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Analyse statique
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer ruff
+        run: pip install ruff
+
+      - name: Verifier le code
+        run: ruff check .
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Installer torch (variante CPU)
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Installer les dependances
+        run: pip install -r requirements.txt pytest httpx
+
+      - name: Lancer les tests
+        run: pytest -v
+
+  docker:
+    name: Image Docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Construire l'image
+        run: docker build -t llm-sentinel:ci .
+
+      - name: Demarrer le conteneur
+        run: |
+          docker run -d --name sentinel -p 8000:8000 llm-sentinel:ci
+          # Au premier demarrage, le conteneur n'a pas de poids locaux : il
+          # telecharge le modele de base depuis HuggingFace. On laisse donc
+          # jusqu'a 3 minutes avant de declarer l'echec.
+          for i in $(seq 1 90); do
+            if curl -sf http://localhost:8000/ > /dev/null; then
+              echo "API operationnelle apres ${i} tentatives"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "L'API n'a pas repondu dans les temps"
+          docker logs sentinel
+          exit 1
+
+      - name: Verifier que le dashboard repond
+        run: curl -sf http://localhost:8000/dashboard | grep -q "LLM Sentinel"
