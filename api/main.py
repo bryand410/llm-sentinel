@@ -26,10 +26,18 @@ app.add_middleware(
 )
 
 # ==========================================
-# Détection du modèle (Local vs Cloud)
+# Détection du modèle (fine-tuné vs base)
 # ==========================================
 LOCAL_MODEL_DIR = os.environ.get("SENTINEL_MODEL_DIR", "./models")
-FALLBACK_MODEL_ID = os.environ.get("SENTINEL_FALLBACK_MODEL", "prajjwal1/bert-tiny")
+
+# Repli quand les poids fine-tunés sont absents.
+#
+# `prajjwal1/bert-tiny` était le choix d'origine. Ce dépôt HuggingFace ne déclare
+# pas de `model_type` dans son config.json et ne publie pas de `tokenizer.json` :
+# transformers 5 refuse de le charger, tokenizer comme modèle. Un clone neuf ne
+# démarrait donc pas du tout — le repli n'a jamais fonctionné.
+# `distilbert-base-uncased` charge correctement et sert de base saine.
+FALLBACK_MODEL_ID = os.environ.get("SENTINEL_FALLBACK_MODEL", "distilbert-base-uncased")
 
 WEIGHT_FILES = ("model.safetensors", "pytorch_model.bin")
 
@@ -45,19 +53,42 @@ def _has_local_weights(directory: str) -> bool:
     return any(os.path.exists(os.path.join(directory, f)) for f in WEIGHT_FILES)
 
 
-if os.path.exists(os.path.join(LOCAL_MODEL_DIR, "config.json")) and _has_local_weights(LOCAL_MODEL_DIR):
+POIDS_FINE_TUNES = _has_local_weights(LOCAL_MODEL_DIR)
+
+if POIDS_FINE_TUNES:
     MODEL_PATH = LOCAL_MODEL_DIR
-    print(f"📁 Modèle local trouvé : {MODEL_PATH}")
+    print(f"📁 Modèle fine-tuné chargé depuis {MODEL_PATH}")
 else:
     MODEL_PATH = FALLBACK_MODEL_ID
-    print(f"🌐 Poids locaux absents — repli sur {FALLBACK_MODEL_ID}")
+    # Un avertissement bruyant, pas une ligne discrète : un garde-fou qui répond
+    # « safe » avec 99 % de confiance depuis une tête de classification aléatoire
+    # est plus dangereux que pas de garde-fou du tout.
+    print("=" * 68)
+    print("⚠️  AUCUN POIDS FINE-TUNÉ — le modèle de base est utilisé tel quel.")
+    print("    Sa tête de classification est aléatoire : les verdicts ne veulent RIEN")
+    print("    dire. Pour obtenir un vrai garde-fou :")
+    print("        python train_v2.py")
+    print("    ou pointez SENTINEL_MODEL_DIR vers un dossier de poids entraînés.")
+    print("=" * 68)
 
 # ==========================================
 # Chargement du modèle
 # ==========================================
 print("⏳ Chargement du modèle...")
-tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
-model = AutoModelForSequenceClassification.from_pretrained(MODEL_PATH)
+try:
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
+    model = AutoModelForSequenceClassification.from_pretrained(MODEL_PATH)
+except Exception as exc:  # noqa: BLE001 — on veut un message utile, pas une trace
+    raise RuntimeError(
+        f"Impossible de charger le modèle « {MODEL_PATH} ».\n"
+        "Sans poids fine-tunés, l'API retombe sur un modèle de base, ce qui exige "
+        "un accès réseau à huggingface.co.\n"
+        "Trois issues :\n"
+        "  1. entraîner le modèle :        python train_v2.py\n"
+        "  2. pointer un modèle existant : SENTINEL_MODEL_DIR=/chemin/vers/poids\n"
+        "  3. choisir un autre repli :     SENTINEL_FALLBACK_MODEL=<identifiant>"
+    ) from exc
+
 model.eval()
 print("✅ Modèle prêt !")
 
@@ -77,7 +108,12 @@ class AnalyzeRequest(BaseModel):
 # ==========================================
 @app.get("/")
 def read_root():
-    return {"status": "success", "message": "Le Sentinel est opérationnel."}
+    return {
+        "status": "success",
+        "message": "Le Sentinel est opérationnel.",
+        "model": MODEL_PATH,
+        "fine_tuned": POIDS_FINE_TUNES,
+    }
 
 @app.post("/analyze")
 def analyze_text(request: AnalyzeRequest):
